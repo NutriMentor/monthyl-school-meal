@@ -79,8 +79,6 @@ def fetch_monthly_menu(school_code, office_code, year, month, meal_code):
     except Exception:
         return {}
 
-
-# 학사일정 정보를 가져오는 함수 (안정성 및 데이터 포괄성 개선)
 def fetch_school_schedule(school_code, office_code, year, month):
     start_date = f"{year}{month:02d}01"
     last_day = calendar.monthrange(year, month)[1]
@@ -96,28 +94,19 @@ def fetch_school_schedule(school_code, office_code, year, month):
         response = requests.get(URL, timeout=15, verify=False)
         response.raise_for_status()
         data = response.json()
-
-        # API가 'SchoolSchedule' 키를 포함하고 있는지 확인
         if 'SchoolSchedule' in data:
             schedule_info = data['SchoolSchedule']
-
-            # 행(row) 데이터가 실제로 존재하는지 확인 (보통 두 번째 요소에 위치)
             if len(schedule_info) > 1 and 'row' in schedule_info[1]:
                 for record in schedule_info[1]['row']:
                     date_key = record.get('AA_YMD')
                     event_name = record.get('EVENT_NM', '').strip()
                     day_type_name = record.get('SBTR_DD_SC_NM', '').strip()
-
-                    # 최종적으로 표시할 이벤트 텍스트 결정
                     display_text = ""
                     if event_name:
                         display_text = event_name
-                    # 행사명이 없더라도 '수업일'이 아닌 특별한 날(예: 휴업일)은 표시
                     elif day_type_name and day_type_name != "수업일":
                         display_text = day_type_name
-
                     if date_key and display_text:
-                        # 같은 날짜에 여러 이벤트가 있으면 쉼표로 연결
                         if date_key in schedule_data:
                             if display_text not in schedule_data[date_key]:
                                 schedule_data[date_key] += f", {display_text}"
@@ -128,11 +117,11 @@ def fetch_school_schedule(school_code, office_code, year, month):
         st.error(f"학사일정 API 요청 중 오류가 발생했습니다: {e}")
         return {}
     except Exception:
-        # JSON 파싱 오류 등이 발생해도 앱이 멈추지 않도록 빈 데이터 반환
         return {}
 
-
-def create_calendar_html(school_name, year, month, menu_data, schedule_data, meal_name, show_allergy=True, saturday_has_menu=False, sunday_has_menu=False):
+# --- [수정됨] ---
+# today_date 파라미터를 추가하여 오늘 날짜 정보를 받도록 수정
+def create_calendar_html(school_name, year, month, menu_data, schedule_data, meal_name, today_date, show_allergy=True, saturday_has_menu=False, sunday_has_menu=False):
     cal = calendar.Calendar(firstweekday=6)
     month_days = cal.monthdatescalendar(year, month)
 
@@ -171,21 +160,28 @@ def create_calendar_html(school_name, year, month, menu_data, schedule_data, mea
         .menu-item {{ background-color: rgba(102, 126, 234, 0.08); border-radius: 4px; padding: 5px 7px; margin-bottom: 4px; line-height: 1.3; }}
         .allergy-info {{ font-size: 11px; color: #e74c3c; margin-left: 4px; }}
         .long-menu-name {{ font-size: 11px; font-weight: 500; }}
-
-        /* 학사일정 스타일 */
         .event-name {{
-            font-size: 11.5px;
-            font-weight: bold;
-            background-color: #e8f5e9; /* 연한 녹색 */
-            color: #2e7d32;
-            padding: 3px 6px;
-            border-radius: 4px;
-            margin-bottom: 5px;
-            display: inline-block;
-            max-width: 100%;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
+            font-size: 11.5px; font-weight: bold; background-color: #e8f5e9;
+            color: #2e7d32; padding: 3px 6px; border-radius: 4px; margin-bottom: 5px;
+            display: inline-block; max-width: 100%; overflow: hidden;
+            text-overflow: ellipsis; white-space: nowrap;
+        }}
+        
+        /* --- [추가됨] 오늘 날짜 강조 스타일 --- */
+        .calendar-table td.today {{
+            border: 2px solid #764ba2;
+            background-color: #fdfcff;
+        }}
+        .today .day-number {{
+            background-color: #764ba2;
+            color: white !important; /* important를 사용해 다른 색상 규칙보다 우선 적용 */
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 5px;
         }}
 
         @media (max-width: 768px) {{
@@ -196,6 +192,7 @@ def create_calendar_html(school_name, year, month, menu_data, schedule_data, mea
             .menu-list {{ font-size: 11px; }}
             .menu-item {{ padding: 4px 5px; }}
             .event-name {{ font-size: 10px; padding: 2px 4px; }}
+            .today .day-number {{ width: 20px; height: 20px; }}
         }}
     </style>
     """
@@ -221,7 +218,11 @@ def create_calendar_html(school_name, year, month, menu_data, schedule_data, mea
         for day in week:
             date_key = day.strftime('%Y%m%d')
             day_class_list = []
-
+            
+            # --- [추가됨] 오늘 날짜인지 확인하고 'today' 클래스 추가 ---
+            if day == today_date:
+                day_class_list.append("today")
+            
             is_weekend = day.weekday() in [5, 6]
             has_menu = date_key in menu_data
             if is_weekend and not has_menu: day_class_list.append("empty-weekend")
@@ -234,7 +235,6 @@ def create_calendar_html(school_name, year, month, menu_data, schedule_data, mea
                 html += f'<td class="other-month"><div class="day-number">{day.day}</div></td>'
                 continue
 
-            # 학사일정 HTML 생성
             schedule_html = ""
             if date_key in schedule_data:
                 event = schedule_data[date_key]
@@ -256,7 +256,7 @@ def create_calendar_html(school_name, year, month, menu_data, schedule_data, mea
                         menu_item_content = f'<span class="long-menu-name">{item_raw}</span>' if len(item_raw) > 10 else item_raw
                     menu_html += f'<li class="menu-item">{menu_item_content}</li>'
                 menu_html += '</ul>'
-
+            
             html += f'<td class="{day_class}"><div class="day-number">{day.day}</div>{schedule_html}{menu_html}</td>'
         html += "</tr>"
 
@@ -282,27 +282,27 @@ st.markdown("""
 </h1>
 """, unsafe_allow_html=True)
 
-# --- Session State 초기화 ---
+# Session State 초기화
 if 'school_list' not in st.session_state: st.session_state.school_list = []
 if 'selected_school_code' not in st.session_state: st.session_state.selected_school_code = None
 if 'selected_school_name' not in st.session_state: st.session_state.selected_school_name = None
 if 'selected_month' not in st.session_state: st.session_state.selected_month = datetime.now().month
 
-# --- 모든 컨트롤을 사이드바로 이동 ---
+# 사이드바
 with st.sidebar:
     st.header("⚙️ 검색 설정")
     st.markdown("---")
-
+    
     office_list = list(OFFICE_CODES.keys())
     default_office_index = office_list.index("강원도교육청")
     selected_office_name = st.selectbox("🏢 교육청을 선택하세요", options=office_list, index=default_office_index)
     selected_office_code = OFFICE_CODES[selected_office_name]
 
     school_search_keyword = st.text_input("🏫 학교 이름을 입력하세요", placeholder="전체 목록은 비워두고 검색")
-
+    
     if st.button("학교 검색", use_container_width=True):
         st.session_state.school_list = search_schools(school_search_keyword, selected_office_code)
-
+        
         if st.session_state.school_list:
             first_school = st.session_state.school_list[0]
             st.session_state.selected_school_code = first_school['code']
@@ -314,7 +314,7 @@ with st.sidebar:
 
     if st.session_state.school_list:
         display_names = [f"{s['name']} ({s['addr']})" for s in st.session_state.school_list]
-
+        
         default_index = 0
         if st.session_state.selected_school_code:
             try:
@@ -323,26 +323,26 @@ with st.sidebar:
                 default_index = display_names.index(full_display_name)
             except (StopIteration, ValueError):
                 default_index = 0
-
+        
         selected_display_name = st.selectbox(
-            "🔎 검색된 학교 중 하나를 선택하세요",
-            options=display_names,
+            "🔎 검색된 학교 중 하나를 선택하세요", 
+            options=display_names, 
             index=default_index,
             placeholder="학교를 선택해주세요."
         )
-
+        
         if selected_display_name:
             selected_school = next((s for s in st.session_state.school_list if f"{s['name']} ({s['addr']})" == selected_display_name), None)
             if selected_school:
                 st.session_state.selected_school_code = selected_school['code']
                 st.session_state.selected_school_name = selected_school['name']
-
+    
     st.markdown("---")
 
     if st.session_state.selected_school_name:
         current_year = datetime.now().year
         year = st.selectbox("📅 년", options=range(current_year - 5, current_year + 6), index=5)
-
+        
         st.write("📅 월")
         month_cols = st.columns(3)
         for i in range(12):
@@ -363,16 +363,18 @@ with st.sidebar:
 # --- 메인 화면의 조회 로직 ---
 if st.session_state.selected_school_name:
     with st.spinner(f"{st.session_state.selected_school_name}의 식단 및 학사일정 정보를 불러오는 중입니다..."):
-        # API를 통해 한 달치 메뉴 데이터를 가져옴
+        # --- [추가됨] ---
+        # 오늘 날짜를 date 객체로 저장
+        today = datetime.now().date()
+        
         monthly_menus = fetch_monthly_menu(
-            st.session_state.selected_school_code,
-            selected_office_code,
-            year,
-            st.session_state.selected_month,
+            st.session_state.selected_school_code, 
+            selected_office_code, 
+            year, 
+            st.session_state.selected_month, 
             selected_meal_code
         )
-
-        # API를 통해 한 달치 학사일정 데이터를 가져옴
+        
         monthly_schedules = fetch_school_schedule(
             st.session_state.selected_school_code,
             selected_office_code,
@@ -394,23 +396,25 @@ if st.session_state.selected_school_name:
 
         if monthly_menus is None:
             st.error("데이터를 불러오는 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.")
-        # 식단과 학사일정이 모두 없는 경우에만 메시지 표시
         elif not monthly_menus and not monthly_schedules:
             st.warning(f"😭 **{st.session_state.selected_school_name}**의 **{year}년 {st.session_state.selected_month}월**에는 식단 및 학사일정 정보가 없습니다.")
         else:
-            # 위에서 가져온 학사일정 정보를 함수에 전달
+            # --- [수정됨] ---
+            # 달력 생성 함수에 today_date 전달
             calendar_view = create_calendar_html(
-                st.session_state.selected_school_name,
-                year, st.session_state.selected_month,
+                st.session_state.selected_school_name, 
+                year, st.session_state.selected_month, 
                 monthly_menus,
-                monthly_schedules, # 학사일정 데이터 전달
-                selected_meal_name,
-                show_allergy_info,
+                monthly_schedules,
+                selected_meal_name, 
+                today_date=today, # << 오늘 날짜 정보 전달
+                show_allergy=show_allergy_info,
                 saturday_has_menu=saturday_has_menu,
                 sunday_has_menu=sunday_has_menu
             )
             st.markdown(calendar_view, unsafe_allow_html=True)
-# --- 하단 정보 섹션 ---
+
+# 하단 정보 섹션
 st.markdown("---")
 with st.expander("📌 알레르기 정보 안내 (펼쳐보기)"):
     st.markdown("**메뉴 옆의 숫자는 알레르기를 유발할 수 있는 식품을 의미합니다.**")
